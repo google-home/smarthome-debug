@@ -26,6 +26,7 @@ admin.initializeApp();
 const firebaseRef = admin.database().ref('/');
 // Initialize Homegraph
 const auth = new google.auth.GoogleAuth({
+    keyFile: "service-account.json",
   scopes: ['https://www.googleapis.com/auth/homegraph'],
 });
 const homegraph = google.homegraph({
@@ -76,22 +77,33 @@ exports.fakeauth = functions.https.onRequest((request, response) => {
 exports.faketoken = functions.https.onRequest((request, response) => {
   const grantType = request.query.grant_type ?
     request.query.grant_type : request.body.grant_type;
+  const refreshToken = request.query.refresh_token
+    ? request.query.refresh_token
+    : request.body.refresh_token;
   const secondsInDay = 86400; // 60 * 60 * 24
   const HTTP_STATUS_OK = 200;
+  const HTTP_STATUS_BAD_REQUEST = 400;
+  let tokenSuffix = 1;
   functions.logger.log(`Grant type ${grantType}`);
 
   let obj;
   if (grantType === 'authorization_code') {
     obj = {
       token_type: 'bearer',
-      access_token: '123access',
+      access_token: '123access' + tokenSuffix++,
       refresh_token: '123refresh',
       expires_in: secondsInDay,
     };
   } else if (grantType === 'refresh_token') {
+    if (refreshToken !== '123refresh') {
+      return response.status(HTTP_STATUS_BAD_REQUEST).json({
+        error: 'invalid_grant',
+        error_description: 'The provided refresh token is invalid.',
+      });
+    }
     obj = {
       token_type: 'bearer',
-      access_token: '123access',
+      access_token: '123access' + tokenSuffix++,
       expires_in: secondsInDay,
     };
   }
@@ -107,7 +119,7 @@ app.onSync((body) => {
     payload: {
       agentUserId: USER_ID,
       devices: [{
-        id: 'washer',
+        id: 'washer1',
         type: 'action.devices.types.WASHER',
         traits: [
           'action.devices.traits.OnOff',
@@ -137,6 +149,7 @@ const queryFirebase = async (deviceId) => {
   const snapshot = await firebaseRef.child(deviceId).once('value');
   const snapshotVal = snapshot.val();
   return {
+    online: snapshotVal.online,
     on: snapshotVal.OnOff.on,
     isPaused: snapshotVal.StartStop.isPaused,
     isRunning: snapshotVal.StartStop.isRunning,
@@ -145,7 +158,7 @@ const queryFirebase = async (deviceId) => {
 const queryDevice = async (deviceId) => {
   const data = await queryFirebase(deviceId);
   return {
-    online: true,
+    online: data.online,
     on: data.on,
     isPaused: data.isPaused,
     isRunning: data.isRunning,
@@ -192,13 +205,16 @@ const updateDevice = async (execution, deviceId) => {
       ref = firebaseRef.child(deviceId).child('OnOff');
       break;
     case 'action.devices.commands.StartStop':
-      state = {isRunning: params.start};
-      if (params.start) state.isPaused = false;
+      state = params.start
+       ? {isRunning: true, isPaused: false}
+       : {isRunning: false, isPaused: false};
       ref = firebaseRef.child(deviceId).child('StartStop');
       break;
-    case 'action.devices.commands.PauseUnpausePause':
-      state = {isPaused: params.pause};
-      if (params.pause) state.isRunning = false;
+    case 'action.devices.commands.PauseUnpause':
+      const data = await queryDevice(deviceId);
+      state = (data.isPaused === false && data.isRunning === false)
+         ? {isRunning: false, isPaused: false}
+         : {isRunning: !params.pause, isPaused: params.pause};
       ref = firebaseRef.child(deviceId).child('StartStop');
       break;
   }
@@ -287,8 +303,9 @@ exports.reportstate = functions.database.ref('{deviceId}').onWrite(
             states: {
               /* Report the current state of our washer */
               [context.params.deviceId]: {
-                online: true,
+                online: snapshot.online,
                 on: snapshot.OnOff.on,
+                isPaused: snapshot.StartStop.isPaused,
                 isRunning: snapshot.StartStop.isRunning,
                 currentRunCycle: [{
                   currentCycle: 'rinse',
