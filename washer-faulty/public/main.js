@@ -62,6 +62,7 @@ SmartHome.prototype.setToken = (token) => {
 
 SmartHome.prototype.handleData = () => {
   const uid = this.uid;
+  const elOnline = document.getElementById('demo-washer-online');
   const elOnOff = document.getElementById('demo-washer-onOff');
   const elRunCycle = document.getElementById('demo-washer-runCycle');
   const elStartStopPaused = document.getElementById('demo-washer-startStopPaused');
@@ -71,6 +72,8 @@ SmartHome.prototype.handleData = () => {
     if (snapshot.exists()) {
       const washerState = snapshot.val();
       console.log(washerState)
+      if(washerState.online) elOnline.MaterialSwitch.on();
+      else elOnline.MaterialSwitch.off();
 
       if (washerState.OnOff.on) elOnOff.MaterialSwitch.on();
       else elOnOff.MaterialSwitch.off();
@@ -89,12 +92,14 @@ SmartHome.prototype.handleData = () => {
 }
 
 SmartHome.prototype.updateState = () => {
+  const elOnline = document.getElementById('demo-washer-online');
   const elOnOff = document.getElementById('demo-washer-onOff');
   const elRunCycle = document.getElementById('demo-washer-runCycle');
   const elStartStopPaused = document.getElementById('demo-washer-startStopPaused');
   const elStartStopRunning = document.getElementById('demo-washer-startStopRunning');
 
   const pkg = {
+    online: elOnline.classList.contains('is-checked'),
     OnOff: { on: elOnOff.classList.contains('is-checked') },
     RunCycle: { dummy: elRunCycle.classList.contains('is-checked') },
     StartStop: {

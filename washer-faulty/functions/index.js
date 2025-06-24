@@ -137,6 +137,7 @@ const queryFirebase = async (deviceId) => {
   const snapshot = await getFirebaseRef().child(deviceId).once('value');
   const snapshotVal = snapshot.val();
   return {
+    online: snapshotVal.online,
     on: snapshotVal.OnOff.on,
     isPaused: snapshotVal.StartStop.isPaused,
     isRunning: snapshotVal.StartStop.isRunning,
@@ -145,7 +146,7 @@ const queryFirebase = async (deviceId) => {
 const queryDevice = async (deviceId) => {
   const data = await queryFirebase(deviceId);
   return {
-    online: true,
+    online: data.online,
     on: data.on,
     isPaused: data.isPaused,
     isRunning: data.isRunning,
@@ -290,7 +291,7 @@ exports.reportstate = functions.database.ref('{deviceId}').onWrite(
             states: {
               /* Report the current state of our washer */
               [context.params.deviceId]: {
-                online: true,
+                online: snapshot.online,
                 on: snapshot.OnOff.on,
                 isRunning: snapshot.StartStop.isRunning,
                 currentRunCycle: [{
