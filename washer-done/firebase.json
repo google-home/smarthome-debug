@@ -8,12 +8,33 @@
       "source": "/requestsync",
       "function": "requestsync"
     }],
-    "headers": [{
-      "source" : "**/*.@(js|html)",
-      "headers" : [ {
-        "key" : "Cache-Control",
-        "value" : "max-age=0"
-      } ]
-    }]
-  }
+    "ignore": [
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  },
+  "headers": [
+    {
+      "source": "**/*.@(js|html)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "max-age=0"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ]
 }

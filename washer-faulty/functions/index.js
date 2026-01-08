@@ -23,7 +23,7 @@ const util = require('util');
 const admin = require('firebase-admin');
 // Initialize Firebase
 admin.initializeApp();
-const firebaseRef = admin.database().ref('/');
+const getFirebaseRef = () => admin.database().ref('/');
 // Initialize Homegraph
 const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/homegraph'],
@@ -74,29 +74,46 @@ exports.fakeauth = functions.https.onRequest((request, response) => {
 });
 
 exports.faketoken = functions.https.onRequest((request, response) => {
-  const grantType = request.query.grant_type ?
-    request.query.grant_type : request.body.grant_type;
-  const secondsInDay = 86400; // 60 * 60 * 24
-  const HTTP_STATUS_OK = 200;
-  functions.logger.log(`Grant type ${grantType}`);
+    const grantType = request.query.grant_type ? request.query.grant_type : request.body.grant_type;
+    const refreshToken = request.query.refresh_token ? request.query.refresh_token : request.body.refresh_token;
+    const validRefreshToken = '123refresh';
+    const secondsInDay = 86400;
+    const HTTP_STATUS_OK = 200;
+    const HTTP_STATUS_BAD_REQUEST = 400;
 
-  let obj;
-  if (grantType === 'authorization_code') {
-    obj = {
-      token_type: 'bearer',
-      access_token: '123access',
-      refresh_token: '123refresh',
-      expires_in: secondsInDay,
-    };
-  } else if (grantType === 'refresh_token') {
-    obj = {
-      token_type: 'bearer',
-      access_token: '123access',
-      expires_in: secondsInDay,
-    };
-  }
-  response.status(HTTP_STATUS_OK)
-      .json(obj);
+    functions.logger.log(`Grant type: ${grantType}`);
+
+    let obj;
+
+    if (grantType === 'authorization_code') {
+        obj = {
+            token_type: 'bearer',
+            access_token: '123access',
+            refresh_token: '123refresh',
+            expires_in: secondsInDay,
+        };
+    } else if (grantType === 'refresh_token') {
+        if (refreshToken !== validRefreshToken) {
+            response.status(HTTP_STATUS_BAD_REQUEST).json({
+                error: 'invalid_grant',
+                error_description: 'Refresh token is invalid',
+            });
+            return;
+        }
+        obj = {
+            token_type: 'bearer',
+            access_token: `123access_${Date.now()}`,
+            expires_in: secondsInDay,
+        };
+    } else {
+        response.status(HTTP_STATUS_BAD_REQUEST).json({
+            error: 'invalid_grant',
+            error_description: 'Grant type is invalid',
+        });
+        return;
+    }
+
+    response.status(HTTP_STATUS_OK).json(obj);
 });
 
 const app = smarthome();
@@ -134,9 +151,10 @@ app.onSync((body) => {
 });
 
 const queryFirebase = async (deviceId) => {
-  const snapshot = await firebaseRef.child(deviceId).once('value');
+  const snapshot = await getFirebaseRef().child(deviceId).once('value');
   const snapshotVal = snapshot.val();
   return {
+    online: snapshotVal.online,
     on: snapshotVal.OnOff.on,
     isPaused: snapshotVal.StartStop.isPaused,
     isRunning: snapshotVal.StartStop.isRunning,
@@ -145,7 +163,7 @@ const queryFirebase = async (deviceId) => {
 const queryDevice = async (deviceId) => {
   const data = await queryFirebase(deviceId);
   return {
-    online: true,
+    online: data.online,
     on: data.on,
     isPaused: data.isPaused,
     isRunning: data.isRunning,
@@ -189,17 +207,20 @@ const updateDevice = async (execution, deviceId) => {
   switch (command) {
     case 'action.devices.commands.OnOff':
       state = {on: params.on};
-      ref = firebaseRef.child(deviceId).child('OnOff');
+      ref = getFirebaseRef().child(deviceId).child('OnOff');
       break;
     case 'action.devices.commands.StartStop':
-      state = {isRunning: params.start};
-      if (params.start) state.isPaused = false;
-      ref = firebaseRef.child(deviceId).child('StartStop');
+      state = params.start
+      ? {isRunning: true, isPaused: false}
+      : {isRunning: false, isPaused: false};
+      ref = getFirebaseRef().child(deviceId).child('StartStop');
       break;
     case 'action.devices.commands.PauseUnpausePause':
-      state = {isPaused: params.pause};
-      if (params.pause) state.isRunning = false;
-      ref = firebaseRef.child(deviceId).child('StartStop');
+      const data = await queryDevice(deviceId);
+      state = (data.isPaused === false && data.isRunning === false)
+        ? {isRunning: false, isPaused: false}
+        : {isRunning: !params.pause, isPaused: params.pause};
+      ref = getFirebaseRef().child(deviceId).child('StartStop');
       break;
   }
 
@@ -287,7 +308,7 @@ exports.reportstate = functions.database.ref('{deviceId}').onWrite(
             states: {
               /* Report the current state of our washer */
               [context.params.deviceId]: {
-                online: true,
+                online: snapshot.online,
                 on: snapshot.OnOff.on,
                 isRunning: snapshot.StartStop.isRunning,
                 currentRunCycle: [{
